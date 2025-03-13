@@ -1,0 +1,203 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import random
+import time
+
+# Define the maze environment
+class MazeEnvironment:
+    def __init__(self, rows=10, cols=3):
+        self.rows = rows
+        self.cols = cols
+        self.start_pos = (rows-1, 0)  # Bottom-left corner
+        self.goal_pos = (0, cols-1)   # Top-right corner (food)
+       
+        # Actions: 0=up, 1=right, 2=down, 3=left
+        self.actions = [0, 1, 2, 3]
+       
+        # Create the maze (True = wall, False = path)
+        self.maze = np.zeros((rows, cols), dtype=bool)
+       
+        # Add vertical walls between columns, with gaps
+        self.maze[:, :] = False  # All paths are open
+       
+    def reset(self):
+        return self.start_pos
+   
+    def step(self, state, action):
+        row, col = state
+        next_row, next_col = row, col
+       
+        # Move according to action
+        if action == 0:    # Up
+            next_row = max(0, row - 1)
+        elif action == 1:  # Right
+            if col < self.cols - 1:
+                next_col = col + 1
+        elif action == 2:  # Down
+            next_row = min(self.rows - 1, row + 1)
+        elif action == 3:  # Left
+            if col > 0:
+                next_col = col - 1
+       
+        # Check if we hit a wall
+        if self.maze[next_row, next_col]:
+            next_row, next_col = row, col  # Stay in place
+       
+        # Check if we reached the goal
+        done = (next_row, next_col) == self.goal_pos
+       
+        # Simple reward: -1 for each step, +100 for reaching goal
+        reward = 100 if done else -1
+       
+        return (next_row, next_col), reward, done
+
+# Q-Learning Agent
+class QLearningAgent:
+    def __init__(self, states, actions, learning_rate=0.1, discount_factor=0.9, exploration_rate=1.0, exploration_decay=0.995):
+        self.q_table = np.zeros(states + (len(actions),))
+        self.learning_rate = learning_rate
+        self.discount_factor = discount_factor
+        self.exploration_rate = exploration_rate
+        self.exploration_decay = exploration_decay
+        self.actions = actions
+   
+    def get_action(self, state):
+        if np.random.random() < self.exploration_rate:
+            return np.random.choice(self.actions)
+        else:
+            return np.argmax(self.q_table[state])
+   
+    def update(self, state, action, reward, next_state, done):
+        # Q-Learning update
+        best_next_action = np.argmax(self.q_table[next_state])
+        td_target = reward + (1 - int(done)) * self.discount_factor * self.q_table[next_state][best_next_action]
+        td_error = td_target - self.q_table[state][action]
+        self.q_table[state][action] += self.learning_rate * td_error
+       
+        # Decay exploration rate
+        if done:
+            self.exploration_rate *= self.exploration_decay
+
+# Function to simulate mouse behavior (includes some random behavior and learning)
+def simulate_mouse_learning(num_episodes=100, initial_time=35):
+    # Simulated time to reach goal for each episode
+    times = []
+   
+    # Initial time (35 seconds as specified)
+    current_time = initial_time
+   
+    # Learning factor (how quickly the mouse improves)
+    learning_factor = 0.95
+   
+    # Random variability in performance
+    variability = 0.2
+   
+    for _ in range(num_episodes):
+        # Add some random variability to the learning
+        random_factor = 1 + random.uniform(-variability, variability)
+       
+        # Calculate time for this episode
+        episode_time = max(5, current_time * random_factor)
+        times.append(episode_time)
+       
+        # Mouse gets better over time (but never faster than ~5 seconds)
+        current_time = max(5, current_time * learning_factor)
+   
+    return times
+
+# Train the Q-Learning agent and get learning curve
+def train_agent(env, agent, num_episodes=100):
+    # Track total steps per episode
+    episode_steps = []
+   
+    for episode in range(num_episodes):
+        state = env.reset()
+        done = False
+        steps = 0
+       
+        while not done:
+            action = agent.get_action(state)
+            next_state, reward, done = env.step(state, action)
+            agent.update(state, action, reward, next_state, done)
+            state = next_state
+            steps += 1
+           
+            # Limit steps per episode to avoid infinite loops
+            if steps >= 100:
+                break
+               
+        episode_steps.append(steps)
+   
+    return episode_steps
+
+# Convert ML steps to time in seconds (assuming each step takes ~0.5 seconds)
+def steps_to_time(steps, time_per_step=0.5):
+    return [step * time_per_step for step in steps]
+
+# Function to plot learning curves with time on y-axis
+def plot_learning_curves(mouse_times, ml_times):
+    plt.figure(figsize=(10, 6))
+   
+    episodes = range(1, len(mouse_times) + 1)
+   
+    plt.plot(episodes, mouse_times, 'b-', label='Mouse Learning Curve')
+    plt.plot(episodes, ml_times, 'r-', label='ML Model Learning Curve')
+   
+    plt.xlabel('Episode')
+    plt.ylabel('Time to Reach Food (seconds)')
+    plt.title('Learning Curve Comparison: Mouse vs. ML Model')
+    plt.legend()
+    plt.grid(True)
+   
+    return plt
+
+# Run the simulation
+def run_maze_learning_comparison(num_episodes=100, initial_mouse_time=35):
+    # Create environment
+    env = MazeEnvironment(rows=10, cols=3)
+   
+    # Create Q-Learning agent
+    agent = QLearningAgent(
+        states=(env.rows, env.cols),
+        actions=env.actions,
+        learning_rate=0.1,
+        discount_factor=0.9,
+        exploration_rate=1.0,
+        exploration_decay=0.98
+    )
+   
+    # Simulate mouse learning
+    print("Simulating mouse learning...")
+    mouse_times = simulate_mouse_learning(num_episodes, initial_time=initial_mouse_time)
+   
+    # Train ML model
+    print("Training Q-Learning agent...")
+    ml_steps = train_agent(env, agent, num_episodes)
+   
+    # Convert steps to time
+    # Assuming the ML model takes 0.5 seconds per step (adjustable)
+    ml_times = steps_to_time(ml_steps, time_per_step=0.5)
+   
+    # Plot learning curves
+    print("Plotting learning curves...")
+    plot = plot_learning_curves(mouse_times, ml_times)
+   
+    # Print some statistics
+    print("\nMouse Learning:")
+    print(f"Initial time: {mouse_times[0]:.2f} seconds")
+    print(f"Final time: {mouse_times[-1]:.2f} seconds")
+    print(f"Improvement: {(1 - mouse_times[-1]/mouse_times[0])*100:.2f}%")
+   
+    print("\nML Model Learning:")
+    print(f"Initial time: {ml_times[0]:.2f} seconds")
+    print(f"Final time: {ml_times[-1]:.2f} seconds")
+    print(f"Improvement: {(1 - ml_times[-1]/ml_times[0])*100:.2f}%")
+   
+    # Display the plot
+    plt.savefig('learning_curve_comparison.png')
+    plt.show()
+   
+    return mouse_times, ml_times
+
+# Run the simulation with more episodes for smoother curves and initial mouse time of 35 seconds
+mouse_times, ml_times = run_maze_learning_comparison(num_episodes=100, initial_mouse_time=35)
